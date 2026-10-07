@@ -21,10 +21,13 @@ public struct GPUBudget: Sendable, Equatable {
   }
 
   public static func current(totalMemory: UInt64) -> GPUBudget {
-    let device = MTLCreateSystemDefaultDevice()
-    guard device?.hasUnifiedMemory ?? false else {
+    // Check the chip, not `hasUnifiedMemory`: Intel integrated GPUs also report unified
+    // memory, but their small working-set cap doesn't limit CPU inference. This sysctl is
+    // 1 on Apple Silicon even when the Intel build runs under Rosetta.
+    guard Sysctl.integer("hw.optional.arm64") == 1 else {
       return GPUBudget(limit: totalMemory, isCustom: false, hasUnifiedMemory: false)
     }
+    let device = MTLCreateSystemDefaultDevice()
     if let megabytes = Sysctl.integer("iogpu.wired_limit_mb"), megabytes > 0 {
       return GPUBudget(limit: UInt64(megabytes) * Bytes.megabyte, isCustom: true)
     }

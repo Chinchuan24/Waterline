@@ -64,6 +64,39 @@ enum ProcessControl {
     }
   }
 
+  /// A frozen review captures app instances, not PIDs to signal later.
+  struct ReviewCandidate: Identifiable {
+    let group: AppGroup
+    let apps: [NSRunningApplication]
+    var id: String { group.id }
+  }
+
+  static func reviewCandidates(in snapshot: ProcessSnapshot) -> [ReviewCandidate] {
+    quitAllCandidates(in: snapshot).compactMap { group in
+      let apps = runningApps(for: group).filter { $0.activationPolicy == .regular && !$0.isTerminated }
+      guard !apps.isEmpty, !apps.contains(where: { $0.isActive }) else { return nil }
+      return ReviewCandidate(group: group, apps: apps)
+    }
+  }
+
+  /// Revalidate captured instances; never substitute a relaunched app or signal helpers.
+  static func quitReviewed(_ candidates: [ReviewCandidate]) -> Int {
+    var requested = 0
+    for candidate in candidates where !isProtected(candidate.group) {
+      for app in candidate.apps {
+        guard !app.isTerminated, !app.isActive, app.activationPolicy == .regular,
+              app.processIdentifier != getpid(),
+              app.bundleURL?.path == candidate.group.bundlePath,
+              let launched = app.launchDate,
+              let current = NSRunningApplication(processIdentifier: app.processIdentifier),
+              current.launchDate == launched,
+              current.bundleURL == app.bundleURL else { continue }
+        if app.terminate() { requested += 1 }
+      }
+    }
+    return requested
+  }
+
   // MARK: Processes
 
   static func canEnd(_ process: ProcessSample) -> Bool {

@@ -24,7 +24,7 @@ Most memory monitors show a bar that's always nearly full and leave you to guess
 - **A verdict, not just a number.** "Plenty of headroom — 22 GB of that is cache macOS hands back instantly." Or: "Memory is getting tight. Quitting Chrome would free about 6 GB."
 - **Leak detection.** Waterline watches every app for an hour and flags the ones whose memory only ever goes up — the shape of a leak — with a notification: *"Slack keeps growing: +1.2 GB in 40 minutes."*
 - **Local AI headroom.** On Apple Silicon the GPU shares RAM but is capped. Waterline shows that cap and tells you which model sizes (4B → 235B, at 4/8/16-bit) fit right now, fit if you close apps, or need the cap raised.
-- **Free memory for real.** Quit any app from its row, end individual processes, or **Quit All Apps** with a preview of how much it frees. No fake "RAM cleaner" buttons — quitting is the only thing that actually works, so that's what Waterline does. System-critical processes are protected.
+- **Free memory for real.** Quit any app from its row, end individual processes, or use **Close Unused…** to review background apps, select the ones you no longer need, and quit them normally. The review shows their estimated memory usage; it never assumes a background app is unnecessary, and save prompts remain available. No fake "RAM cleaner" buttons — quitting is the only thing that actually works, so that's what Waterline does. System-critical processes are protected.
 - **Apps, not processes.** Chrome's 28 helpers, Safari's WebKit processes, and an editor's language servers are rolled up under the app responsible, with a per-app trend line.
 - **Electron callout.** See at a glance which apps ship their own copy of Chromium and how much that costs.
 - **24-hour history** with memory-pressure periods highlighted, plus peak, average, and swap stats.
@@ -61,7 +61,7 @@ cd waterline
 ./build.sh --all --zip      # both versions, as release zips
 ```
 
-Then turn on **Open at Login** from the ⚙︎ menu in the panel.
+Then turn on **Start Automatically at Login** from the ⚙︎ menu in the panel.
 
 ## How the numbers work
 
@@ -107,3 +107,7 @@ The code is split into **`WaterlineCore`** — measurement and analysis with no 
 ## License
 
 [MIT](LICENSE). The app icon artwork was generated with Higgsfield and is included under the same license.
+
+### Automatic startup
+
+In Waterline, click the gear icon and check **Start Automatically at Login**. Waterline will open after you sign in to your Mac. Uncheck it to disable startup. If macOS needs approval, choose **Approve Startup in System Settings…**. Install Waterline in Applications before enabling this setting.

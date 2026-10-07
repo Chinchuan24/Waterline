@@ -16,6 +16,9 @@ struct AppsTab: View {
   @State private var expanded: Set<String> = []
   @State private var showAll = false
   @State private var pending: PendingAction?
+  @State private var review: [ProcessControl.ReviewCandidate]?
+  @State private var selected: Set<String> = []
+  @State private var quitFeedback: String?
 
   private static let collapsedCount = 15
 
@@ -28,7 +31,9 @@ struct AppsTab: View {
         ConfirmBar(action: pending) { self.pending = nil }
           .transition(.move(edge: .top).combined(with: .opacity))
       }
-      if snapshot.groups.isEmpty {
+      if let review {
+        reviewList(review)
+      } else if snapshot.groups.isEmpty {
         ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         list
@@ -41,16 +46,67 @@ struct AppsTab: View {
     HStack {
       Text("Using the most memory").font(.subheadline.weight(.semibold))
       Spacer()
-      let candidates = ProcessControl.quitAllCandidates(in: snapshot)
-      if !candidates.isEmpty {
-        Button("Quit All Apps…") { confirmQuitAll(candidates) }
-          .buttonStyle(.borderless)
-          .font(.callout)
-          .help("Quit every open Dock app except Finder and Waterline.")
+      Button("Close Unused…") {
+        pending = nil
+        quitFeedback = nil
+        selected = []
+        review = ProcessControl.reviewCandidates(in: snapshot)
       }
+      .buttonStyle(.borderless)
+      .font(.callout)
+      .help("Review background apps and choose which ones you no longer need.")
     }
     .padding(.horizontal, 16)
     .padding(.bottom, 4)
+  }
+
+  private func reviewList(_ candidates: [ProcessControl.ReviewCandidate]) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Choose apps you no longer need. Background apps may still be playing audio or doing work.")
+        .font(.caption).foregroundStyle(.secondary)
+      ScrollView {
+        VStack(spacing: 8) {
+          if candidates.isEmpty {
+            Text("No background apps available to close.").font(.callout)
+          }
+          ForEach(candidates) { candidate in
+            Toggle(isOn: Binding(
+              get: { selected.contains(candidate.id) },
+              set: { if $0 { selected.insert(candidate.id) } else { selected.remove(candidate.id) } }
+            )) {
+              HStack {
+                Text(candidate.group.name).lineLimit(1)
+                Spacer()
+                Text(Bytes.format(candidate.group.footprint)).monospacedDigit().foregroundStyle(.secondary)
+              }
+            }
+            .toggleStyle(.checkbox)
+          }
+        }
+      }
+      if let quitFeedback {
+        Text(quitFeedback).font(.caption).foregroundStyle(.secondary)
+      } else {
+        let total = candidates.filter { selected.contains($0.id) }.reduce(UInt64(0)) { $0 + $1.group.footprint }
+        Text("Selected apps use about \(Bytes.format(total)). Actual memory freed may vary.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+      HStack {
+        Button("Back") { review = nil; selected = [] }
+        Spacer()
+        Button("Quit Selected (\(selected.count))") {
+          let count = ProcessControl.quitReviewed(candidates.filter { selected.contains($0.id) })
+          selected = []
+          quitFeedback = "Sent \(count) quit requests. Check apps for save prompts; exited or active apps are skipped."
+          review = ProcessControl.reviewCandidates(in: monitor.processes)
+          monitor.rescanSoon()
+        }
+        .disabled(selected.isEmpty)
+      }
+      .controlSize(.small)
+    }
+    .padding(.horizontal, 16)
+    .padding(.bottom, 8)
   }
 
   private var list: some View {
@@ -103,17 +159,6 @@ struct AppsTab: View {
   private func close(_ group: AppGroup) {
     ProcessControl.close(group)
     monitor.rescanSoon()
-  }
-
-  private func confirmQuitAll(_ candidates: [AppGroup]) {
-    let total = candidates.reduce(0) { $0 + $1.footprint }
-    pending = PendingAction(
-      message: "Quit \(candidates.count) apps to free about \(Bytes.format(total))? Apps with unsaved work will ask first.",
-      confirmTitle: "Quit All"
-    ) { [snapshot] in
-      ProcessControl.quitAll(in: snapshot)
-      monitor.rescanSoon()
-    }
   }
 
   private func confirmForceClose(_ group: AppGroup) {

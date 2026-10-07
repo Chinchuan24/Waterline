@@ -231,7 +231,26 @@ private struct PanelFooter: View {
   @AppStorage(Settings.menuBarStyle) private var style: MenuBarStyle = .percent
   @AppStorage(Settings.floatingMeter) private var floatingMeter = false
   @AppStorage(Settings.notifications) private var notifications = true
-  @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+  @State private var loginStatus: SMAppService.Status = .notRegistered
+  @State private var loginError: String?
+
+  private func refreshLoginStatus() {
+    loginStatus = SMAppService.mainApp.status
+  }
+
+  private func setLaunchAtLogin(_ enabled: Bool) {
+    do {
+      if enabled {
+        try SMAppService.mainApp.register()
+      } else {
+        try SMAppService.mainApp.unregister()
+      }
+      loginError = nil
+    } catch {
+      loginError = "Could not change automatic startup. Run Waterline from Applications and try again. \(error.localizedDescription)"
+    }
+    refreshLoginStatus()
+  }
 
   var body: some View {
     HStack {
@@ -244,7 +263,24 @@ private struct PanelFooter: View {
         Toggle("Floating Meter", isOn: $floatingMeter)
         Toggle("Notifications", isOn: $notifications)
           .disabled(!Notifier.isSupported)
-        Toggle("Open at Login", isOn: $launchAtLogin)
+        Toggle("Start Automatically at Login", isOn: Binding(
+          get: { loginStatus == .enabled },
+          set: { setLaunchAtLogin($0) }
+        ))
+        .help("Open Waterline automatically after you sign in to your Mac.")
+        if loginStatus == .requiresApproval {
+          Button("Approve Startup in System Settings…") {
+            SMAppService.openSystemSettingsLoginItems()
+          }
+          Button("Cancel Startup Request") { setLaunchAtLogin(false) }
+        }
+        if let loginError {
+          Text(loginError)
+        }
+        Button("Login Items Settings…") {
+          SMAppService.openSystemSettingsLoginItems()
+        }
+        .onAppear { refreshLoginStatus() }
       } label: {
         Image(systemName: "gearshape")
       }
@@ -275,12 +311,10 @@ private struct PanelFooter: View {
     .onChange(of: notifications) { _, enabled in
       if enabled { Notifier.requestAuthorization() }
     }
-    .onChange(of: launchAtLogin) { _, enabled in
-      do {
-        if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-      } catch {
-        launchAtLogin = SMAppService.mainApp.status == .enabled
-      }
+    .onAppear { refreshLoginStatus() }
+    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+      refreshLoginStatus()
     }
+
   }
 }
