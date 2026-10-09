@@ -9,7 +9,7 @@ enum Entry {
     let arguments = CommandLine.arguments
     if arguments.contains("--help") || arguments.contains("-h") {
       print("""
-        Waterline — RAM monitor for Apple Silicon
+        Waterline — RAM monitor for Mac (Apple Silicon and Intel)
 
           Waterline                     run the menu bar app
           Waterline --json              print a machine-readable reading and exit
@@ -60,6 +60,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       Notifier.requestAuthorization()
     }
     FloatingMeter.shared.applySavedPreference()
+
+    // SwiftUI apps can be terminated without applicationWillTerminate at logout or
+    // shutdown, so also save history whenever the Mac is about to sleep or power off.
+    let workspace = NSWorkspace.shared.notificationCenter
+    for name in [NSWorkspace.willPowerOffNotification, NSWorkspace.willSleepNotification] {
+      workspace.addObserver(forName: name, object: nil, queue: .main) { _ in
+        MainActor.assumeIsolated { MemoryMonitor.shared.saveHistory() }
+      }
+    }
   }
 
   func applicationWillTerminate(_ notification: Notification) {

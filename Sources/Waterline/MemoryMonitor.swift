@@ -14,15 +14,33 @@ final class MemoryMonitor {
   static let backgroundScanInterval: TimeInterval = 30
   static let swapWindow: TimeInterval = 5 * 60
 
-  private(set) var system: SystemMemory
-  private(set) var live: [Double] = []
-  private(set) var processes = ProcessSnapshot()
-  private(set) var verdict: MemoryVerdict
-  private(set) var usage: UsageHistory
-  private(set) var leaks = LeakDetector()
-  private(set) var gpu: GPUBudget
+  /// Everything the panel draws. Republished only while the panel is open, so the
+  /// (always-alive) MenuBarExtra window doesn't re-render every tick while hidden.
+  struct PanelData {
+    var system = SystemMemory()
+    var live: [Double] = []
+    var processes = ProcessSnapshot()
+    var verdict = MemoryVerdict(level: .relaxed, headline: "", detail: "")
+    var usage = UsageHistory()
+    var gpu = GPUBudget(limit: 0, isCustom: false)
+    var suspects: [GrowthReport] = []
+    var growth: [String: GrowthReport] = [:]
+    var trends: [String: [UInt64]] = [:]
+  }
 
-  @ObservationIgnored private var panelVisible = false
+  // Observed every tick: the menu bar label and floating meter need these live.
+  private(set) var system: SystemMemory
+  private(set) var verdict: MemoryVerdict
+  private(set) var panel = PanelData()
+  private(set) var isPanelVisible = false
+
+  @ObservationIgnored private(set) var live: [Double] = []
+  @ObservationIgnored private(set) var processes = ProcessSnapshot()
+  @ObservationIgnored private(set) var usage: UsageHistory
+  @ObservationIgnored private(set) var leaks = LeakDetector()
+  @ObservationIgnored private(set) var gpu: GPUBudget
+
+  @ObservationIgnored private var lastGPURefresh = Date()
   @ObservationIgnored private var isScanning = false
   @ObservationIgnored private var lastScan = Date.distantPast
   @ObservationIgnored private var swapSamples: [(time: Date, bytes: UInt64)] = []
@@ -46,12 +64,26 @@ final class MemoryMonitor {
     }
   }
 
-  var suspects: [GrowthReport] { leaks.suspects() }
-
   func setPanelVisible(_ visible: Bool) {
-    let becameVisible = visible && !panelVisible
-    panelVisible = visible
-    if becameVisible { scanProcesses() }
+    guard visible != isPanelVisible else { return }
+    isPanelVisible = visible
+    if visible {
+      publishPanel()
+      scanProcesses()
+    }
+  }
+
+  private func publishPanel() {
+    let suspects = leaks.suspects()
+    var growth: [String: GrowthReport] = [:]
+    var trends: [String: [UInt64]] = [:]
+    for group in processes.groups {
+      growth[group.id] = leaks.report(for: group.id)
+      trends[group.id] = leaks.trend(for: group.id)
+    }
+    panel = PanelData(
+      system: system, live: live, processes: processes, verdict: verdict, usage: usage,
+      gpu: gpu, suspects: suspects, growth: growth, trends: trends)
   }
 
   /// Rescan shortly after quitting something, once the app has had a moment to exit.
@@ -83,13 +115,17 @@ final class MemoryMonitor {
     updateVerdict()
     checkPressureAlert()
 
-    if panelVisible || now.timeIntervalSince(lastScan) >= Self.backgroundScanInterval {
+    if isPanelVisible || abs(now.timeIntervalSince(lastScan)) >= Self.backgroundScanInterval {
       scanProcesses()
     }
-    if now.timeIntervalSince(lastSave) >= 5 * 60 { saveHistory() }
+    if abs(now.timeIntervalSince(lastSave)) >= 5 * 60 { saveHistory() }
 
     // The GPU cap only changes if someone runs sysctl; once a minute is plenty.
-    if Int(now.timeIntervalSince1970) % 60 < 2 { gpu = .current(totalMemory: system.total) }
+    if abs(now.timeIntervalSince(lastGPURefresh)) >= 60 {
+      gpu = .current(totalMemory: system.total)
+      lastGPURefresh = now
+    }
+    if isPanelVisible { publishPanel() }
   }
 
   private var swapGrowth: Int64 {
@@ -106,7 +142,7 @@ final class MemoryMonitor {
     let point = UsagePoint(
       time: now, usedFraction: system.usedFraction, pressure: system.pressure, swapUsed: system.swapUsed)
     minutePeak = minutePeak.map { $0.peak(with: point) } ?? point
-    guard now.timeIntervalSince(minuteStart) >= UsageHistory.pointInterval, let peak = minutePeak else { return }
+    guard abs(now.timeIntervalSince(minuteStart)) >= UsageHistory.pointInterval, let peak = minutePeak else { return }
     usage.append(peak)
     minuteStart = now
     minutePeak = nil
@@ -121,6 +157,7 @@ final class MemoryMonitor {
       processes = snapshot
       isScanning = false
       if leaks.record(snapshot.groups, at: Date()) { checkLeakAlerts() }
+      if isPanelVisible { publishPanel() }
     }
   }
 
@@ -134,7 +171,8 @@ final class MemoryMonitor {
   }
 
   /// Notifies when pressure rises and stays up for ~6 seconds, so brief spikes don't nag.
-  /// Pressure has to stay lower for a minute before the next rise notifies again.
+  /// Pressure has to stay lower for five minutes before the next rise notifies again, so
+  /// pressure that keeps flickering between levels doesn't notify over and over.
   private func checkPressureAlert() {
     let pressure = system.pressure
     if pressure > alerts.notifiedPressure {
@@ -147,7 +185,7 @@ final class MemoryMonitor {
     } else if pressure < alerts.notifiedPressure {
       alerts.elevatedTicks = 0
       alerts.calmTicks += 1
-      if alerts.calmTicks >= 30 {
+      if alerts.calmTicks >= 150 {
         alerts.notifiedPressure = pressure
         alerts.calmTicks = 0
       }

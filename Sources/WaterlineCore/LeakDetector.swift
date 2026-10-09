@@ -42,7 +42,13 @@ public struct LeakDetector: Sendable {
   /// relaunched app starts fresh.
   @discardableResult
   public mutating func record(_ groups: [AppGroup], at time: Date) -> Bool {
-    if let lastRecord, time.timeIntervalSince(lastRecord) < sampleInterval { return false }
+    if let lastRecord {
+      let gap = time.timeIntervalSince(lastRecord)
+      if gap >= 0 && gap < sampleInterval { return false }
+      // After sleep (or the clock moving), the old samples aren't comparable: a jump
+      // across the gap would read as a perfectly straight leak. Start over.
+      if gap < 0 || gap > sampleInterval * 4 { samples.removeAll() }
+    }
     lastRecord = time
 
     var seen = Set<String>()
@@ -74,7 +80,33 @@ public struct LeakDetector: Sendable {
     let duration = last.time.timeIntervalSince(first.time)
     guard duration > 0 else { return nil }
 
-    let xs = series.map { $0.time.timeIntervalSince(first.time) }
+    guard let (slope, fit) = Self.regression(series) else { return nil }
+    let growth = slope * duration
+    let head = series.prefix(3).map { Double($0.footprint) }
+    let baseline = max(head.reduce(0, +) / Double(head.count), 1)
+
+    // An app that ramped up and then levelled off also fits a rising line over the
+    // window. A leak is still climbing at the end, so the most recent third of the
+    // samples must keep rising at a good fraction of the overall rate.
+    let recent = series.suffix(max(4, series.count / 3))
+    let stillGrowing = (Self.regression(Array(recent))?.slope ?? 0) >= slope * 0.4
+
+    let isSuspect = duration >= minimumDuration
+      && series.count >= minimumSamples
+      && growth >= Double(minimumGrowth)
+      && growth / baseline >= minimumRelativeGrowth
+      && fit >= minimumFit
+      && stillGrowing
+
+    return GrowthReport(
+      appID: appID, name: names[appID] ?? appID, growth: Int64(growth),
+      duration: duration, isSuspect: isSuspect)
+  }
+
+  /// Least-squares slope (bytes per second) and R² of footprint over time.
+  private static func regression(_ series: [Sample]) -> (slope: Double, fit: Double)? {
+    guard series.count >= 2, let start = series.first?.time else { return nil }
+    let xs = series.map { $0.time.timeIntervalSince(start) }
     let ys = series.map { Double($0.footprint) }
     let count = Double(series.count)
     let meanX = xs.reduce(0, +) / count
@@ -86,22 +118,7 @@ public struct LeakDetector: Sendable {
       syy += (y - meanY) * (y - meanY)
     }
     guard sxx > 0 else { return nil }
-
-    let slope = sxy / sxx
-    let fit = syy > 0 ? (sxy * sxy) / (sxx * syy) : 0
-    let growth = slope * duration
-    let head = ys.prefix(3)
-    let baseline = max(head.reduce(0, +) / Double(head.count), 1)
-
-    let isSuspect = duration >= minimumDuration
-      && series.count >= minimumSamples
-      && growth >= Double(minimumGrowth)
-      && growth / baseline >= minimumRelativeGrowth
-      && fit >= minimumFit
-
-    return GrowthReport(
-      appID: appID, name: names[appID] ?? appID, growth: Int64(growth),
-      duration: duration, isSuspect: isSuspect)
+    return (sxy / sxx, syy > 0 ? (sxy * sxy) / (sxx * syy) : 0)
   }
 
   public func suspects() -> [GrowthReport] {

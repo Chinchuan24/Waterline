@@ -86,6 +86,8 @@ struct FloatingMeterView: View {
       RoundedRectangle(cornerRadius: 14, style: .continuous)
         .strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
     .help("Drag to move. Right-click to hide.")
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(MenuBarLabel.spokenSummary(memory))
     .contextMenu {
       Button("Hide Floating Meter") {
         UserDefaults.standard.set(false, forKey: Settings.floatingMeter)

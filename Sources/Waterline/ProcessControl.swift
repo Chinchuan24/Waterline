@@ -38,7 +38,9 @@ enum ProcessControl {
   static func close(_ group: AppGroup, force: Bool = false) {
     let apps = runningApps(for: group)
     if apps.isEmpty {
-      // Not an app (e.g. `node`, `python3`): signal its processes directly.
+      // Only standalone tools (e.g. `node`, `python3`) are signalled directly. If an app
+      // has already quit, its listed PIDs are stale, so there is nothing left to do.
+      guard group.bundlePath == nil else { return }
       group.processes.forEach { end($0, force: force) }
     } else {
       for app in apps {
@@ -103,9 +105,13 @@ enum ProcessControl {
     process.pid > 1 && process.pid != getpid() && !protectedNames.contains(process.name)
   }
 
+  /// Signals a process only if its PID still belongs to the same program. The list can
+  /// be seconds (or, with a confirmation open, minutes) old, and macOS reuses PIDs.
   @discardableResult
   static func end(_ process: ProcessSample, force: Bool = false) -> Bool {
-    guard canEnd(process) else { return false }
+    guard canEnd(process), ProcessSampler.currentName(of: process.pid) == process.name else {
+      return false
+    }
     return kill(process.pid, force ? SIGKILL : SIGTERM) == 0
   }
 }

@@ -8,21 +8,21 @@ struct LocalAITab: View {
   @AppStorage(Settings.quantization) private var quantization: Quantization = .q4
 
   var body: some View {
-    let memory = monitor.system
-    let available = min(memory.available, monitor.gpu.limit)
-    let runtimes = LocalAIRuntime.detect(in: monitor.processes.groups)
+    let memory = monitor.panel.system
+    let available = min(memory.available, monitor.panel.gpu.limit)
+    let runtimes = LocalAIRuntime.detect(in: monitor.panel.processes.groups)
     let fits = ModelClass.catalog.map { model in
       (model, ModelFit.evaluate(
         required: model.requiredBytes(quantization), available: available,
-        gpuLimit: monitor.gpu.limit, totalMemory: memory.total))
+        gpuLimit: monitor.panel.gpu.limit, totalMemory: memory.total))
     }
 
     ScrollView {
       VStack(alignment: .leading, spacing: 12) {
         HStack(spacing: 16) {
-          if monitor.gpu.hasUnifiedMemory {
-            figure("GPU can use", Bytes.format(monitor.gpu.limit),
-                   note: monitor.gpu.isCustom ? "custom limit" : "\(Int((Double(monitor.gpu.limit) / Double(max(memory.total, 1)) * 100).rounded()))% of RAM")
+          if monitor.panel.gpu.hasUnifiedMemory {
+            figure("GPU can use", Bytes.format(monitor.panel.gpu.limit),
+                   note: monitor.panel.gpu.isCustom ? "custom limit" : "\(Int((Double(monitor.panel.gpu.limit) / Double(max(memory.total, 1)) * 100).rounded()))% of RAM")
               .help("macOS caps how much unified memory the GPU may use. A model must fit under this cap to run on the GPU.")
           } else {
             figure("Runs on", "CPU", note: "Intel Mac · uses RAM")
@@ -83,9 +83,12 @@ struct LocalAITab: View {
 
   private func footnote(hasOverLimit: Bool) -> String {
     var text = "Estimates for an ~8K-token context; longer contexts need more."
-    if hasOverLimit {
-      let suggested = Int(Double(monitor.system.total) * 0.85 / Double(Bytes.megabyte))
-      text += " To let the GPU use more memory until the next restart, run: sudo sysctl iogpu.wired_limit_mb=\(suggested)"
+    // Leave macOS at least 8 GB (or 15% on big Macs), and only suggest a raise.
+    let total = monitor.panel.system.total
+    let reserve = max(8 * Bytes.gigabyte, total / 100 * 15)
+    if hasOverLimit, monitor.panel.gpu.hasUnifiedMemory, total > reserve,
+       total - reserve > monitor.panel.gpu.limit {
+      text += " To let the GPU use more memory until the next restart, run: sudo sysctl iogpu.wired_limit_mb=\((total - reserve) / Bytes.megabyte)"
     }
     return text
   }
@@ -124,12 +127,15 @@ private struct FitPill: View {
     }
   }
 
+  // Primary text plus a colored dot: tinted text on a tinted pill is too faint in light mode.
   var body: some View {
-    Text(style.text)
-      .font(.caption.weight(.medium))
-      .foregroundStyle(style.tint == .yellow ? Color.primary : style.tint)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 3)
-      .background(style.tint.opacity(0.16), in: Capsule())
+    HStack(spacing: 5) {
+      Circle().fill(style.tint).frame(width: 6, height: 6)
+      Text(style.text)
+    }
+    .font(.caption.weight(.medium))
+    .padding(.horizontal, 8)
+    .padding(.vertical, 3)
+    .background(style.tint.opacity(0.16), in: Capsule())
   }
 }

@@ -22,7 +22,7 @@ struct AppsTab: View {
 
   private static let collapsedCount = 15
 
-  private var snapshot: ProcessSnapshot { monitor.processes }
+  private var snapshot: ProcessSnapshot { monitor.panel.processes }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -40,6 +40,11 @@ struct AppsTab: View {
       }
     }
     .animation(.snappy(duration: 0.25), value: pending?.id)
+    // A confirmation must not outlive the panel: reopening later and pressing Return
+    // shouldn't act on a list the user is no longer looking at.
+    .onChange(of: monitor.isPanelVisible) { _, visible in
+      if !visible { pending = nil }
+    }
   }
 
   private var header: some View {
@@ -98,7 +103,7 @@ struct AppsTab: View {
           let count = ProcessControl.quitReviewed(candidates.filter { selected.contains($0.id) })
           selected = []
           quitFeedback = "Sent \(count) quit requests. Check apps for save prompts; exited or active apps are skipped."
-          review = ProcessControl.reviewCandidates(in: monitor.processes)
+          review = ProcessControl.reviewCandidates(in: monitor.panel.processes)
           monitor.rescanSoon()
         }
         .disabled(selected.isEmpty)
@@ -112,7 +117,7 @@ struct AppsTab: View {
   private var list: some View {
     ScrollView {
       LazyVStack(spacing: 6) {
-        ForEach(monitor.suspects, id: \.appID) { suspect in
+        ForEach(monitor.panel.suspects, id: \.appID) { suspect in
           LeakCallout(report: suspect)
         }
         if !snapshot.electronApps.isEmpty {
@@ -126,8 +131,8 @@ struct AppsTab: View {
             AppRow(
               group: group,
               largest: largest,
-              growth: monitor.leaks.report(for: group.id),
-              trend: monitor.leaks.trend(for: group.id),
+              growth: monitor.panel.growth[group.id],
+              trend: monitor.panel.trends[group.id] ?? [],
               isExpanded: expanded.contains(group.id),
               toggle: { toggle(group.id) },
               close: { close(group) },
@@ -155,10 +160,22 @@ struct AppsTab: View {
     }
   }
 
-  /// A normal quit is safe (apps ask to save), so it happens on the first click.
+  /// Quitting an app is safe (it can ask to save), so it happens on the first click.
+  /// Ending a standalone tool's processes is not (a dev server, a CLI session), so ask first.
   private func close(_ group: AppGroup) {
-    ProcessControl.close(group)
-    monitor.rescanSoon()
+    guard group.bundlePath == nil else {
+      ProcessControl.close(group)
+      monitor.rescanSoon()
+      return
+    }
+    let count = group.processes.count
+    pending = PendingAction(
+      message: "End \(count == 1 ? "the" : "all \(count)") \(group.name) \(count == 1 ? "process" : "processes")? Anything running in \(count == 1 ? "it" : "them") stops without saving.",
+      confirmTitle: "End"
+    ) {
+      ProcessControl.close(group)
+      monitor.rescanSoon()
+    }
   }
 
   private func confirmForceClose(_ group: AppGroup) {
@@ -321,6 +338,17 @@ private struct AppRow: View {
       .onTapGesture { if canExpand { toggle() } }
       .onHover { isHovered = $0 }
       .contextMenu { menu }
+      // The ✕ only appears on hover, so give keyboard and VoiceOver users the same actions.
+      .accessibilityElement(children: .combine)
+      .accessibilityAddTraits(.isButton)
+      .accessibilityActions {
+        if canExpand {
+          Button(isExpanded ? "Hide processes" : "Show processes", action: toggle)
+        }
+        if canClose {
+          Button(group.bundlePath == nil ? "End \(group.name)" : "Quit \(group.name)", action: close)
+        }
+      }
 
       if isExpanded && canExpand {
         VStack(spacing: 0) {
@@ -370,6 +398,12 @@ private struct ProcessRow: View {
     .padding(.vertical, 2)
     .contentShape(Rectangle())
     .onHover { isHovered = $0 }
+    .accessibilityElement(children: .combine)
+    .accessibilityActions {
+      if ProcessControl.canEnd(process) {
+        Button("End process") { end(process, false) }
+      }
+    }
     .contextMenu {
       if ProcessControl.canEnd(process) {
         Button("End Process…") { end(process, false) }

@@ -16,6 +16,16 @@ public struct Report: Sendable, Codable {
     public let footprint: UInt64
     public let isElectron: Bool
     public let processes: [Process]
+
+    // Write `"bundlePath": null` rather than leaving the key out, so every app has the same shape.
+    public func encode(to encoder: any Encoder) throws {
+      var container = encoder.container(keyedBy: CodingKeys.self)
+      try container.encode(name, forKey: .name)
+      try container.encode(bundlePath, forKey: .bundlePath)
+      try container.encode(footprint, forKey: .footprint)
+      try container.encode(isElectron, forKey: .isElectron)
+      try container.encode(processes, forKey: .processes)
+    }
   }
 
   public struct Process: Sendable, Codable {

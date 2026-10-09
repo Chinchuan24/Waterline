@@ -29,7 +29,7 @@ Most memory monitors show a bar that's always nearly full and leave you to guess
 - **Electron callout.** See at a glance which apps ship their own copy of Chromium and how much that costs.
 - **24-hour history** with memory-pressure periods highlighted, plus peak, average, and swap stats.
 - **Floating meter.** An optional always-on-top gauge you can park in any corner.
-- **Lightweight and private.** ~0% CPU at idle (the full process scan only runs while the panel is open, plus every 30 s for leak detection). No network access, no analytics, no accounts.
+- **Lightweight and private.** Under 1% CPU on average while idle in the menu bar (the panel only redraws while it's open, and the full process scan runs every 30 s for leak detection). No network access, no analytics, no accounts.
 
 <p align="center">
   <img src="docs/images/panel-history-light.png" width="300" alt="History tab">
@@ -48,11 +48,13 @@ Pick the download for your Mac from [Releases](../../releases):
 
 Not sure? Apple menu → **About This Mac**: it says "Chip: Apple M…" or "Processor: …Intel…". Unzip, then drag **Waterline.app** to Applications. Requires macOS 14 Sonoma or later.
 
-> The release build isn't notarized yet, so the first time you open it macOS will say it can't verify the developer. Right-click the app → **Open** → **Open**. You only need to do this once.
+> The release build isn't notarized yet, so the first time you open it macOS will say it can't verify the developer. You only need to do this once:
+> - **macOS 15 Sequoia and later:** double-click Waterline and close the warning, then open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to the Waterline message.
+> - **macOS 14 Sonoma:** right-click the app → **Open** → **Open**.
 
 On Intel Macs everything works the same, except the Local AI tab: Intel GPUs don't share RAM, so it sizes models against ordinary memory and notes that they'll run mostly on the CPU.
 
-**Build from source** (needs Xcode or just the Command Line Tools, Swift 6.2+, macOS 14+):
+**Build from source** (needs Swift 6.2, which comes with Xcode 26 or the Command Line Tools for Xcode 26; those require macOS 15.6 or later to build, while the app itself runs on macOS 14+):
 
 ```bash
 git clone https://github.com/Chinchuan24/waterline.git
@@ -61,7 +63,7 @@ cd waterline
 ./build.sh --all --zip      # both versions, as release zips
 ```
 
-Then turn on **Start Automatically at Login** from the ⚙︎ menu in the panel.
+Then turn on **Start Automatically at Login** from the ⚙︎ menu in the panel, so Waterline opens after you sign in. If macOS asks for approval, choose **Approve Startup in System Settings…**. Install Waterline in Applications before turning this on.
 
 ## How the numbers work
 
@@ -107,7 +109,3 @@ The code is split into **`WaterlineCore`** — measurement and analysis with no 
 ## License
 
 [MIT](LICENSE). The app icon artwork was generated with Higgsfield and is included under the same license.
-
-### Automatic startup
-
-In Waterline, click the gear icon and check **Start Automatically at Login**. Waterline will open after you sign in to your Mac. Uncheck it to disable startup. If macOS needs approval, choose **Approve Startup in System Settings…**. Install Waterline in Applications before enabling this setting.

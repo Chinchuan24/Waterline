@@ -4,7 +4,7 @@ Thanks for helping! Bug reports, model-size corrections, and small focused PRs a
 
 ## Setup
 
-You need Swift 6.2+ (Xcode 26, or just the Command Line Tools) on an Apple Silicon Mac running macOS 14 or later.
+You need Swift 6.2+ (Xcode 26, or the Command Line Tools for Xcode 26), which requires macOS 15.6 or later. Either Apple Silicon or Intel works; the app you build runs on macOS 14 and later.
 
 ```bash
 swift build
@@ -31,4 +31,4 @@ scripts/test.sh          # works with either Xcode or the Command Line Tools
 
 ## Releasing
 
-Tag a version (`git tag v1.0.0 && git push --tags`). The release workflow builds `Waterline.zip` and attaches it to a GitHub release. Bump `CFBundleShortVersionString` in `Resources/Info.plist` first.
+Bump `CFBundleShortVersionString` (and `CFBundleVersion`) in `Resources/Info.plist`, commit, then tag that version (`git tag v1.0.1 && git push origin v1.0.1`). The release workflow checks that the tag matches the plist, builds `Waterline-AppleSilicon.zip` and `Waterline-Intel.zip`, and attaches both to a GitHub release.

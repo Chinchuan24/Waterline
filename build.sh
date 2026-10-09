@@ -12,7 +12,8 @@ cd "$(dirname "$0")"
 
 APP_NAME="Waterline"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)"
-HOST_ARCH="$(uname -m)"
+# uname -m says x86_64 inside a Rosetta shell; ask the hardware instead.
+if [[ "$(sysctl -n hw.optional.arm64 2>/dev/null)" == 1 ]]; then HOST_ARCH=arm64; else HOST_ARCH=x86_64; fi
 
 ARCHS=()
 ZIP=false
@@ -61,6 +62,8 @@ if $INSTALL; then
   APP="build/$(label "$HOST_ARCH")/$APP_NAME.app"
   [[ -d "$APP" ]] || { echo "No build for this Mac's chip ($HOST_ARCH) to install" >&2; exit 1; }
   pkill -x Waterline 2>/dev/null || true
+  # Wait for the old copy to exit, or `open` can fail with error -600.
+  for _ in $(seq 1 50); do pgrep -x Waterline >/dev/null || break; sleep 0.1; done
   rm -rf "/Applications/$APP_NAME.app"
   cp -R "$APP" "/Applications/"
   open "/Applications/$APP_NAME.app"

@@ -8,9 +8,9 @@ struct HistoryTab: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
-        LiveChart(values: monitor.live)
-        DayChart(history: monitor.usage)
-        DayStats(history: monitor.usage)
+        LiveChart(values: monitor.panel.live)
+        DayChart(history: monitor.panel.usage)
+        DayStats(history: monitor.panel.usage)
       }
       .padding(.horizontal, 16)
       .padding(.vertical, 4)
@@ -68,6 +68,25 @@ private struct LiveChart: View {
 private struct DayChart: View {
   let history: UsageHistory
 
+  static func segments(of points: [UsagePoint]) -> [[UsagePoint]] {
+    var runs: [[UsagePoint]] = []
+    for point in points {
+      if let last = runs.last?.last, point.time.timeIntervalSince(last.time) <= UsageHistory.pointInterval * 3 {
+        runs[runs.count - 1].append(point)
+      } else {
+        runs.append([point])
+      }
+    }
+    return runs
+  }
+
+  /// Whole-hour ticks spaced so there are about four labels and none repeat.
+  static func hourStride(for history: UsageHistory) -> Int {
+    guard let first = history.points.first?.time, let last = history.points.last?.time else { return 1 }
+    let hours = last.timeIntervalSince(first) / 3600
+    return max(1, Int((hours / 4).rounded(.up)))
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       SectionTitle(title: "Last 24 hours", trailing: nil)
@@ -87,13 +106,19 @@ private struct DayChart: View {
               yEnd: .value("Top", 100))
             .foregroundStyle(point.pressure.color.opacity(0.18))
           }
-          ForEach(history.points, id: \.time) { point in
-            AreaMark(x: .value("Time", point.time), y: .value("Used", point.usedFraction * 100))
-              .foregroundStyle(.linearGradient(
-                colors: [.blue.opacity(0.3), .blue.opacity(0.02)], startPoint: .top, endPoint: .bottom))
-            LineMark(x: .value("Time", point.time), y: .value("Used", point.usedFraction * 100))
-              .foregroundStyle(.blue)
-              .lineStyle(StrokeStyle(lineWidth: 1.2))
+          // Each unbroken run of minutes is its own series, so sleep or time with the app
+          // closed shows as a gap rather than a line drawn straight across it.
+          ForEach(Array(Self.segments(of: history.points).enumerated()), id: \.offset) { index, segment in
+            ForEach(segment, id: \.time) { point in
+              AreaMark(x: .value("Time", point.time), y: .value("Used", point.usedFraction * 100),
+                       series: .value("Run", index))
+                .foregroundStyle(.linearGradient(
+                  colors: [.blue.opacity(0.3), .blue.opacity(0.02)], startPoint: .top, endPoint: .bottom))
+              LineMark(x: .value("Time", point.time), y: .value("Used", point.usedFraction * 100),
+                       series: .value("Run", index))
+                .foregroundStyle(.blue)
+                .lineStyle(StrokeStyle(lineWidth: 1.2))
+            }
           }
         }
         .chartYScale(domain: 0...100)
@@ -104,7 +129,7 @@ private struct DayChart: View {
           }
         }
         .chartXAxis {
-          AxisMarks(values: .automatic(desiredCount: 4)) {
+          AxisMarks(values: .stride(by: .hour, count: Self.hourStride(for: history))) {
             AxisGridLine()
             AxisValueLabel(format: .dateTime.hour())
           }

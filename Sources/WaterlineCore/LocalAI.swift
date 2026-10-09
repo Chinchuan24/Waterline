@@ -87,7 +87,7 @@ public struct ModelClass: Sendable, Identifiable, Equatable {
     ModelClass(label: "27B", billions: 27, examples: "Gemma 3 27B"),
     ModelClass(label: "32B", billions: 32, examples: "Qwen3 32B"),
     ModelClass(label: "70B", billions: 70, examples: "Llama 3.3 70B"),
-    ModelClass(label: "120B", billions: 120, examples: "gpt-oss-120b"),
+    ModelClass(label: "123B", billions: 123, examples: "Mistral Large 2"),
     ModelClass(label: "235B", billions: 235, examples: "Qwen3 235B"),
   ]
 }
@@ -113,15 +113,24 @@ public enum ModelFit: Sendable, Equatable {
 public enum LocalAIRuntime {
   private static let prefixes = [
     "ollama", "lm studio", "lmstudio", "llama-server", "llama-cli", "koboldcpp", "gpt4all",
-    "msty", "localai", "mlx_lm",
+    "msty", "localai",
   ]
   private static let exactNames: Set<String> = ["jan"]
 
+  static func matches(_ name: String) -> Bool {
+    let name = name.lowercased()
+    return exactNames.contains(name) || prefixes.contains { name.hasPrefix($0) }
+  }
+
   /// Running local-model runtimes (Ollama, LM Studio, llama.cpp, …) from a snapshot.
+  /// Runtimes started from a terminal (`ollama serve`, `llama-server`) are grouped under
+  /// the terminal app, so matching processes inside other groups are listed on their own.
   public static func detect(in groups: [AppGroup]) -> [AppGroup] {
-    groups.filter { group in
-      let name = group.name.lowercased()
-      return exactNames.contains(name) || prefixes.contains { name.hasPrefix($0) }
+    groups.compactMap { group in
+      if matches(group.name) { return group }
+      let runtimes = group.processes.filter { matches($0.name) }
+      guard let first = runtimes.first else { return nil }
+      return AppGroup(id: group.id + "#runtime", name: first.name, processes: runtimes)
     }
   }
 }

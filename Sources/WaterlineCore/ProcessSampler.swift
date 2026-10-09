@@ -136,6 +136,14 @@ public enum ProcessSampler {
     return String(decoding: buffer.prefix(Int(length)), as: UTF8.self)
   }
 
+  /// The name `snapshot()` would give this PID right now, or nil if it no longer exists.
+  public static func currentName(of pid: pid_t) -> String? {
+    if let path = executablePath(of: pid) { return (path as NSString).lastPathComponent }
+    var buffer = [UInt8](repeating: 0, count: 256)
+    let length = proc_name(pid, &buffer, UInt32(buffer.count))
+    return length > 0 ? String(decoding: buffer.prefix(Int(length)), as: UTF8.self) : nil
+  }
+
   static func processName(of pid: pid_t) -> String {
     var buffer = [UInt8](repeating: 0, count: 256)
     let length = proc_name(pid, &buffer, UInt32(buffer.count))

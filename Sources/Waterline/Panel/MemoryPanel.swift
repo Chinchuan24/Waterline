@@ -20,15 +20,22 @@ enum PanelTab: String, CaseIterable, Identifiable {
 /// The popover shown when the menu bar item is clicked.
 struct MemoryPanel: View {
   let monitor: MemoryMonitor
+
+  /// 320 pt for the list, less on short screens (e.g. a 13" MacBook Air at "Larger Text")
+  /// so the whole panel still fits below the menu bar.
+  static var tabHeight: CGFloat {
+    let screen = NSScreen.main?.visibleFrame.height ?? 900
+    return min(320, max(180, screen - 420))
+  }
   @AppStorage(Settings.panelTab) private var tab: PanelTab = .apps
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       VStack(alignment: .leading, spacing: 12) {
-        VerdictCard(verdict: monitor.verdict)
-        SummaryHeader(memory: monitor.system)
-        CompositionBar(memory: monitor.system)
-        CompositionLegend(memory: monitor.system)
+        VerdictCard(verdict: monitor.panel.verdict)
+        SummaryHeader(memory: monitor.panel.system)
+        CompositionBar(memory: monitor.panel.system)
+        CompositionLegend(memory: monitor.panel.system)
         Picker("View", selection: $tab) {
           ForEach(PanelTab.allCases) { Text($0.title).tag($0) }
         }
@@ -46,10 +53,10 @@ struct MemoryPanel: View {
         case .localAI: LocalAITab(monitor: monitor)
         }
       }
-      .frame(height: 320)
+      .frame(height: Self.tabHeight)
 
       Divider()
-      PanelFooter(unreadableCount: monitor.processes.unreadableCount)
+      PanelFooter(unreadableCount: monitor.panel.processes.unreadableCount)
     }
     .frame(width: 380)
     .background(WindowVisibilityObserver { monitor.setPanelVisible($0) })

@@ -12,8 +12,12 @@ struct MenuBarLabel: View {
 
   var body: some View {
     Image(nsImage: Self.render(memory: monitor.system, style: style))
-      .accessibilityLabel(
-        "Memory used \(Bytes.format(monitor.system.used)) of \(Bytes.format(monitor.system.total, gbDecimals: 0))")
+      .accessibilityLabel(Self.spokenSummary(monitor.system))
+  }
+
+  static func spokenSummary(_ memory: SystemMemory) -> String {
+    let pressure = memory.pressure == .normal ? "" : ". Memory pressure \(memory.pressure.label.lowercased())"
+    return "Memory used \(Bytes.format(memory.used)) of \(Bytes.format(memory.total, gbDecimals: 0)), \(Int((memory.usedFraction * 100).rounded())) percent\(pressure)"
   }
 
   static func render(memory: SystemMemory, style: MenuBarStyle) -> NSImage {
@@ -32,7 +36,9 @@ struct MenuBarLabel: View {
     .fixedSize()
 
     let renderer = ImageRenderer(content: content)
-    renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+    // The highest scale of any display, so it stays sharp on a Retina menu bar even
+    // when the key window is on a non-Retina screen.
+    renderer.scale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
     let image = renderer.nsImage ?? NSImage()
     image.isTemplate = true
     return image

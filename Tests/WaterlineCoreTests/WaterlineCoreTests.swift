@@ -84,6 +84,28 @@ private func app(_ name: String, _ footprint: UInt64) -> AppGroup {
     #expect(detector.suspects().isEmpty)
   }
 
+  @Test func `growth that ramped up and levelled off is not flagged`() {
+    var detector = LeakDetector()
+    // +1.2 GB over the first 20 minutes, then flat for the last 10.
+    feed(&detector, minutes: 30) { step in 600 * mb + UInt64(min(step, 40)) * 30 * mb }
+    #expect(detector.report(for: "Slack")?.isSuspect == false)
+  }
+
+  @Test func `noisy growth fails the straight-line check`() {
+    var detector = LeakDetector()
+    // Net +1.5 GB, but swinging ±1 GB between samples: R² far below 0.8.
+    feed(&detector, minutes: 30) { step in 1 * gb + UInt64(step) * 25 * mb + (step % 2 == 0 ? gb : 0) }
+    #expect(detector.report(for: "Slack")?.isSuspect == false)
+  }
+
+  @Test func `a gap such as sleep resets history`() {
+    var detector = LeakDetector()
+    detector.record([app("A", gb)], at: start)
+    detector.record([app("A", gb)], at: start.addingTimeInterval(30))
+    detector.record([app("A", 3 * gb)], at: start.addingTimeInterval(8 * 3600))
+    #expect(detector.trend(for: "A") == [3 * gb])
+  }
+
   @Test func `short bursts are not flagged before the minimum duration`() {
     var detector = LeakDetector()
     feed(&detector, minutes: 10) { step in 500 * mb + UInt64(step) * 60 * mb }
